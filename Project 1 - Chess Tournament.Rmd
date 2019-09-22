@@ -1,0 +1,140 @@
+---
+title: "Project 1: Chess Tournament"
+author: "Amber Ferger"
+date: "9/18/2019"
+output: html_document
+---
+
+## Libraries
+```{r libraries, eval = TRUE, echo = TRUE}
+library(tidyverse)
+```
+
+
+## Preliminary Cleaning
+- Import the txt file and store as a tibble to make it easier to work with
+- Filter out divider rows
+- Rename columns to be the concatenation of the first 2 rows
+- Filter out any rows that do not start with a number or a state abbreviation
+``` {r importFile, eval = TRUE}
+# import file, convert to tibble
+rawData <- as_tibble(read.delim('tournamentInfo.txt', header = FALSE, sep = '|', stringsAsFactors =FALSE))
+
+# remove rows with dashes
+rawData <- rawData %>% 
+  filter(!str_detect(V1,'-----'))
+
+# rename columns
+colnames(rawData) = c('PAIR_NUM', 'PLAYER_NAME','TOTAL_PTS','R1', 'R2', 'R3','R4','R5','R6','R7', 'REMOVE')
+
+# filter out rows/columns that do not contain data 
+rawData <- rawData %>% 
+  filter(str_detect(rawData$PAIR_NUM,'[A-Z]{2}|[[:digit:]]')) %>%
+  select(-'REMOVE')
+
+```
+
+## Combine the records
+In order to make sure that we can aggregate the data in the proper way, we will need to alter the records so that each row contains all of the information for 1 player. To do this, we will:
+
+- Define 2 new columns for the State and Pre-rating
+- Update those columns with the values from the row directly below the player's initial information
+- Remove rows not starting with the player number
+
+``` {r combineRecords, eval = TRUE}
+
+# create 2 new columns
+rawData$STATE <- 1:nrow(rawData)
+rawData$PRE_RATING <- 1:nrow(rawData)
+
+# update STATE column
+rawData[str_detect(rawData$PAIR_NUM,'[[:digit:]]'),11] <- rawData[str_detect(rawData$PAIR_NUM,'[A-Z]{2}'),1]
+
+# update PRE_RATING column
+rawData[str_detect(rawData$PAIR_NUM,'[[:digit:]]'),12] <- rawData[str_detect(rawData$PAIR_NUM,'[A-Z]{2}'),2]
+
+# remove columns without player number in first column
+rawData <- rawData %>% 
+  filter(str_detect(rawData$PAIR_NUM, '[[:digit:]]'))
+
+```
+
+## Reformat data
+Now that the data frame has 1 record per player, we need to extract out the pre-rating score and the opponents in each round.
+
+```{r preRating, eval = TRUE}
+
+# re-define pre-game rating
+rawData$PRE_RATING <- str_extract(str_extract(rawData$PRE_RATING,'R\\:[[:space:]]+[[:digit:]]{1,5}'),'[[:digit:]]+')
+
+
+# replace values in each of the rounds with just the indiviual that the player faced
+cols <- c('R1','R2','R3','R4','R5','R6','R7')
+
+for (c in cols){
+  rawData[[c]] <- str_extract(rawData[[c]],'[[:digit:]]+')
+}
+
+```
+
+## Calculate the opponent scores
+Before compiling all of the opponent scores, we will need to make sure that all of our columns containing numeric values are converted from strings.
+
+``` {r opponentScores, eval = TRUE}
+
+newCols <- c('R1','R2','R3','R4','R5','R6','R7', 'PRE_RATING', 'TOTAL_PTS')
+rawData[newCols] <- sapply(rawData[newCols],as.numeric)
+
+```
+
+Now that the data is numeric, we can start to compile the scores of the opponents. We will first create 2 empty lists - one that will end up storing the summed scores of all the opponents and one that will store the total number of opponents per player. 
+
+```{r converting, eval = TRUE}
+summaryList <- matrix(0, nrow(rawData), 1)
+numOpponents <- matrix(0, nrow(rawData), 1)
+
+```
+
+
+Finally, we'll create a loop that iterates through each of the player's opponents and operations in the following manner: 
+
+- Creates a variable that stores the pre rating score of each player's opponent for round i
+- Creates a variable that stores whether or not an opponent was faced in round i (1 = yes, 0 = no)
+- Adds the score for the opponents in round i to summaryList 
+- Adds a 1 to the numOpponents list if an opponent was faced in round i
+
+```{r loops, eval = TRUE}
+
+for (c in cols){
+  toAdd <- rawData[rawData[[c]],12]
+  opponentList <- matrix(0,nrow(rawData),1)
+  opponentList[!is.na(toAdd)] <- 1
+  toAdd[is.na(toAdd)] <- 0
+  summaryList <- summaryList + toAdd
+  numOpponents <- numOpponents + opponentList
+}
+
+```
+
+Now we will calculate the average pre-chess rating of each of the opponents.
+``` {r averageRating, eval = TRUE}
+rawData$AVG_OPPONENT_RATING <- summaryList$PRE_RATING / numOpponents
+
+```
+
+## Final data set
+Our final data set will include Player’s Name, Player’s State, Total Number of Points, Player’s Pre-Rating, and Average Pre Chess Rating of Opponents and will be saved as a csv.
+
+``` {r finalSet, eval = TRUE}
+
+finalCols <- c('PLAYER_NAME', 'STATE', 'TOTAL_PTS', 'PRE_RATING', 'AVG_OPPONENT_RATING')
+
+finalData <- rawData[,finalCols]
+write.csv(finalData, 'finalData.csv')
+
+```
+
+```{r final, eval = TRUE}
+head(finalData)
+
+```
